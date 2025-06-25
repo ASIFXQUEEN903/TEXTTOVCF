@@ -1,8 +1,8 @@
 import logging
 import os
 import random
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
@@ -25,6 +25,18 @@ END:VCARD
 """
     return vcf
 
+# ✅ /start command handler
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🔗 Owner", url="https://t.me/B8NORI")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "Hey I am personal text to VCF converter of BINORI",
+        reply_markup=reply_markup
+    )
+
+# ✅ text message handler
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw = update.message.text.strip()
     numbers = [line.strip() for line in raw.split("\n") if line.strip().startswith("+") and line.strip()[1:].isdigit()]
@@ -44,6 +56,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    print("✅ Bot is running... (Heroku ready)")
+    print("✅ Bot is running... (Heroku or Termux ready)")
     app.run_polling()
