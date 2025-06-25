@@ -13,7 +13,7 @@ from telegram.ext import (
 # 🔐 ENV and Config
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PASSWORD = "BINORI903"
-OWNER_ID = 7582601826  # Password bypass & /chapass access
+OWNER_ID = 5826711802  # Password bypass & /chapass access
 user_auth = {}
 user_files = {}
 
