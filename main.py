@@ -1,113 +1,81 @@
-import logging
-import os
-from telegram import (
-    Update,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton
-)
-from telegram.ext import (
-    ApplicationBuilder,
-    MessageHandler,
-    CommandHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters
-)
+import logging import os from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, Document from telegram.ext import (ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, ContextTypes, filters)
 
-# 🔐 Env variable
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-PASSWORD = "BINORI903"
-user_auth = {}
+BOT_TOKEN = os.getenv("BOT_TOKEN") user_states = {}  # user_id: {"authenticated": bool, "step": str, "numbers": list} PASSWORD = "BINORI903"
 
-# 📋 Logging setup
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+logging.basicConfig(level=logging.INFO)
+
+def create_multi_vcf(numbers, index): vcf = "" for phone in numbers: last_digits = phone[-4:] name = f"XQUEEN_{last_digits}" vcf += f"""BEGIN:VCARD VERSION:3.0 N:{name};;;; FN:{name} TEL;TYPE=CELL:{phone} END:VCARD """ file_name = f"XQUEEN_PART_{index + 1}.vcf" with open(file_name, "w") as f: f.write(vcf) return file_name
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE): user_id = update.effective_user.id user_states[user_id] = {"authenticated": False, "step": "awaiting_password"}
+
+buttons = [
+    [InlineKeyboardButton("📢 Channel", url="https://t.me/WSBINORI"),
+     InlineKeyboardButton("👤 Owner", url="https://t.me/B8NORI")],
+    [InlineKeyboardButton("🗂 Text to VCF Converter", callback_data="access_vcf")]
+]
+
+await update.message.reply_photo(
+    photo="https://files.catbox.moe/xv5h9a.jpg",
+    caption="👑 Welcome to BINORI's Text ➔ VCF Converter\nSend any .txt file with phone numbers to begin.",
+    reply_markup=InlineKeyboardMarkup(buttons)
 )
 
-# 📞 VCF Generator
-def create_multi_vcf(numbers):
-    vcf = ""
-    for phone in numbers:
-        last_digits = phone[-4:]
-        name = f"XQUEEN_{last_digits}"
-        vcf += f"""BEGIN:VCARD
-VERSION:3.0
-N:{name};;;;
-FN:{name}
-TEL;TYPE=CELL:{phone}
-END:VCARD
-"""
-    return vcf
+async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE): query = update.callback_query await query.answer() user_id = query.from_user.id user_states[user_id] = {"authenticated": False, "step": "awaiting_password"} await query.message.reply_text("🔑 Enter password to continue:")
 
-# 🚀 /start Command
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Image + 2 buttons
-    top_buttons = [
-        [
-            InlineKeyboardButton("📢 Channel", url="https://t.me/WSBINORI"),
-            InlineKeyboardButton("👤 Owner", url="https://t.me/B8NORI")
-        ]
-    ]
-    await update.message.reply_photo(
-        photo="https://files.catbox.moe/xv5h9a.jpg",
-        caption="👑 Welcome to BINORI's Text ➤ VCF Converter\n🔄 Send phone numbers and get .vcf contact file instantly!",
-        reply_markup=InlineKeyboardMarkup(top_buttons)
-    )
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE): user_id = update.effective_user.id text = update.message.text.strip()
 
-    # Telegram services-style single line button
-    service_button = [
-        [InlineKeyboardButton("🗂 Text to VCF Converter", callback_data="access_vcf")]
-    ]
-    await update.message.reply_text("👇 Tap the service below:", reply_markup=InlineKeyboardMarkup(service_button))
+if user_id not in user_states:
+    return
 
-# 🔘 Button Callback (asks password)
-async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    user_auth[user_id] = False
-    await query.message.reply_text("🔑 Enter password to unlock VCF Converter:")
+state = user_states[user_id]
 
-# ✉️ Handle both password & number input
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    text = update.message.text.strip()
+if state["step"] == "awaiting_password":
+    if text == PASSWORD:
+        state["authenticated"] = True
+        state["step"] = "awaiting_file"
+        await update.message.reply_text("✅ Access granted! Now send a .txt file with phone numbers.")
+    else:
+        await update.message.reply_text("❌ Wrong password. Try again:")
 
-    if user_id not in user_auth:
-        return
+elif state["step"] == "awaiting_file":
+    await update.message.reply_text("📂 Please send a .txt file with phone numbers (one per line).")
 
-    if user_auth[user_id] is False:
-        if text == PASSWORD:
-            user_auth[user_id] = True
-            await update.message.reply_text("✅ Access granted! Now send phone numbers to get VCF file.")
-        else:
-            await update.message.reply_text("❌ Wrong password. Try again:")
-        return
+elif state["step"] == "awaiting_file_count":
+    if text.isdigit():
+        count = int(text)
+        numbers = state["numbers"]
+        chunks = [numbers[i::count] for i in range(count)]
 
-    # If access granted: handle numbers
-    if user_auth.get(user_id):
-        numbers = [
-            line.strip() for line in text.split("\n")
-            if line.strip().startswith("+") and line.strip()[1:].isdigit()
-        ]
-        if not numbers:
-            await update.message.reply_text("❌ Send valid phone numbers (one per line, starting with +)")
-            return
+        for idx, part in enumerate(chunks):
+            file_path = create_multi_vcf(part, idx)
+            await update.message.reply_document(document=open(file_path, "rb"), caption=f"✅ Part {idx + 1}")
+            os.remove(file_path)
 
-        vcf_content = create_multi_vcf(numbers)
-        file_name = "XQUEEN_CONTACTS.vcf"
-        with open(file_name, "w") as f:
-            f.write(vcf_content)
+        state["step"] = "done"
+    else:
+        await update.message.reply_text("❌ Please enter a valid number of files.")
 
-        await update.message.reply_document(document=open(file_name, "rb"), caption=f"✅ {len(numbers)} contacts saved")
-        os.remove(file_name)
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE): user_id = update.effective_user.id state = user_states.get(user_id)
 
-# 🔁 App launcher
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_button, pattern="access_vcf"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    print("✅ Bot is running...")
-    app.run_polling()
+if not state or not state.get("authenticated"):
+    return
+
+if update.message.document.mime_type != "text/plain":
+    await update.message.reply_text("❌ Only .txt files are supported.")
+    return
+
+file = await update.message.document.get_file()
+content = await file.download_as_bytearray()
+lines = content.decode("utf-8").splitlines()
+numbers = [line.strip() for line in lines if line.strip().startswith("+") and line.strip()[1:].isdigit()]
+
+if not numbers:
+    await update.message.reply_text("❌ No valid phone numbers found in file.")
+    return
+
+user_states[user_id]["numbers"] = numbers
+user_states[user_id]["step"] = "awaiting_file_count"
+await update.message.reply_text(f"📄 Total {len(numbers)} numbers found. How many .vcf files do you want?")
+
+if name == "main": app = ApplicationBuilder().token(BOT_TOKEN).build() app.add_handler(CommandHandler("start", start)) app.add_handler(CallbackQueryHandler(button_click, pattern="access_vcf")) app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)) app.add_handler(MessageHandler(filters.Document.ALL, handle_document)) print("✅ Bot is running...") app.run_polling()
+
