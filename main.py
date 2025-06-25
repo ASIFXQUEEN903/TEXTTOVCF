@@ -1,16 +1,31 @@
 import logging
 import os
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
+from telegram import (
+    Update,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton
+)
+from telegram.ext import (
+    ApplicationBuilder,
+    MessageHandler,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters
+)
 
+# 🔐 Env variable
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+PASSWORD = "BINORI903"
+user_auth = {}
 
+# 📋 Logging setup
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-# 📞 VCF File Generator
+# 📞 VCF Generator
 def create_multi_vcf(numbers):
     vcf = ""
     for phone in numbers:
@@ -25,46 +40,74 @@ END:VCARD
 """
     return vcf
 
-# 🚀 /start Handler
+# 🚀 /start Command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
+    # Image + 2 buttons
+    top_buttons = [
         [
             InlineKeyboardButton("📢 Channel", url="https://t.me/WSBINORI"),
             InlineKeyboardButton("👤 Owner", url="https://t.me/B8NORI")
         ]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    image_url = "https://files.catbox.moe/xv5h9a.jpg"
-    caption = (
-        "👑 Welcome to BINORI's Text ➤ VCF Converter\n"
-        "🔄 Send phone numbers and get .vcf contact file instantly!"
+    await update.message.reply_photo(
+        photo="https://files.catbox.moe/xv5h9a.jpg",
+        caption="👑 Welcome to BINORI's Text ➤ VCF Converter\n🔄 Send phone numbers and get .vcf contact file instantly!",
+        reply_markup=InlineKeyboardMarkup(top_buttons)
     )
 
-    await update.message.reply_photo(photo=image_url, caption=caption, reply_markup=reply_markup)
+    # Telegram services-style single line button
+    service_button = [
+        [InlineKeyboardButton("🗂 Text to VCF Converter", callback_data="access_vcf")]
+    ]
+    await update.message.reply_text("👇 Tap the service below:", reply_markup=InlineKeyboardMarkup(service_button))
 
-# ✉️ Text Handler
+# 🔘 Button Callback (asks password)
+async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    user_auth[user_id] = False
+    await query.message.reply_text("🔑 Enter password to unlock VCF Converter:")
+
+# ✉️ Handle both password & number input
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw = update.message.text.strip()
-    numbers = [line.strip() for line in raw.split("\n") if line.strip().startswith("+") and line.strip()[1:].isdigit()]
+    user_id = update.message.from_user.id
+    text = update.message.text.strip()
 
-    if not numbers:
-        await update.message.reply_text("❌ Send valid phone numbers (one per line, starting with +)")
+    if user_id not in user_auth:
         return
 
-    vcf_content = create_multi_vcf(numbers)
-    file_name = "XQUEEN_CONTACTS.vcf"
+    if user_auth[user_id] is False:
+        if text == PASSWORD:
+            user_auth[user_id] = True
+            await update.message.reply_text("✅ Access granted! Now send phone numbers to get VCF file.")
+        else:
+            await update.message.reply_text("❌ Wrong password. Try again:")
+        return
 
-    with open(file_name, "w") as f:
-        f.write(vcf_content)
+    # If access granted: handle numbers
+    if user_auth.get(user_id):
+        numbers = [
+            line.strip() for line in text.split("\n")
+            if line.strip().startswith("+") and line.strip()[1:].isdigit()
+        ]
+        if not numbers:
+            await update.message.reply_text("❌ Send valid phone numbers (one per line, starting with +)")
+            return
 
-    await update.message.reply_document(document=open(file_name, "rb"), caption=f"✅ {len(numbers)} contacts saved")
-    os.remove(file_name)
+        vcf_content = create_multi_vcf(numbers)
+        file_name = "XQUEEN_CONTACTS.vcf"
+        with open(file_name, "w") as f:
+            f.write(vcf_content)
 
-# 🔁 Main Entry
+        await update.message.reply_document(document=open(file_name, "rb"), caption=f"✅ {len(numbers)} contacts saved")
+        os.remove(file_name)
+
+# 🔁 App launcher
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(handle_button, pattern="access_vcf"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     print("✅ Bot is running...")
     app.run_polling()
