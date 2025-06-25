@@ -1,0 +1,23 @@
+{
+  "name": "vcf-telegram-bot",
+  "description": "Telegram bot to convert numbers to VCF contact file.",
+  "repository": "https://github.com/yourusername/vcf-telegram-bot",
+  "keywords": ["telegram", "vcf", "bot"],
+  "env": {
+    "BOT_TOKEN": {
+      "description": "Your Telegram Bot Token",
+      "required": true
+    }
+  },
+  "formation": {
+    "worker": {
+      "quantity": 1,
+      "size": "free"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+}
