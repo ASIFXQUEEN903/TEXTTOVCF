@@ -1,27 +1,35 @@
 import logging
 import os
-from telegram import (
-    Update, InlineKeyboardMarkup, InlineKeyboardButton, Document
-)
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, Document
 from telegram.ext import (
-    ApplicationBuilder, MessageHandler, CommandHandler,
-    CallbackQueryHandler, ContextTypes, filters
+    ApplicationBuilder,
+    MessageHandler,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters
 )
 
+# ENV
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PASSWORD = "BINORI903"
+user_auth = {}
+user_files = {}
 
+# LOGGING
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-user_auth = {}
-user_stage = {}
-user_numbers = {}
+# 🔧 Helper
+def clean_number(number: str) -> str:
+    number = number.strip()
+    if not number.startswith("+"):
+        number = "+" + number
+    return number
 
-# 🔄 VCF Creator
-def create_multi_vcf(numbers, index):
+def create_multi_vcf(numbers):
     vcf = ""
     for phone in numbers:
         last_digits = phone[-4:]
@@ -33,12 +41,9 @@ FN:{name}
 TEL;TYPE=CELL:{phone}
 END:VCARD
 """
-    file_name = f"VCF_PART_{index+1}.vcf"
-    with open(file_name, "w") as f:
-        f.write(vcf)
-    return file_name
+    return vcf
 
-# 🚀 /start
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     top_buttons = [
         [
@@ -48,111 +53,95 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_photo(
         photo="https://files.catbox.moe/xv5h9a.jpg",
-        caption="👑 Welcome to BINORI's Text ➤ VCF Converter\n🔄 Upload a .txt file and convert numbers into VCF files.",
+        caption="👑 Welcome to BINORI's Text ➤ VCF Converter\n🔄 Send phone numbers and get .vcf contact file instantly!",
         reply_markup=InlineKeyboardMarkup(top_buttons)
     )
-    service_button = [
-        [InlineKeyboardButton("🗂 Text to VCF Converter", callback_data="access_vcf")]
-    ]
+
+    service_button = [[InlineKeyboardButton("🗂 Text to VCF Converter", callback_data="access_vcf")]]
     await update.message.reply_text("👇 Tap the service below:", reply_markup=InlineKeyboardMarkup(service_button))
 
-# 🔘 Button: Ask Password
+# Password
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     user_auth[user_id] = False
-    user_stage[user_id] = None
-    await query.message.reply_text("🔐 Enter password to continue:")
+    await query.message.reply_text("🔑 Enter password to unlock VCF Converter:")
 
-# 🧾 Handle Password / Numbers / File Count
+# Handle Text (password or number of files)
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
 
+    # Not registered
     if user_id not in user_auth:
         return
 
-    # 🔑 Password Check
+    # Password check
     if user_auth[user_id] is False:
         if text == PASSWORD:
             user_auth[user_id] = True
-            await update.message.reply_text("✅ Access granted! Now send a .txt file containing numbers.")
+            await update.message.reply_text("✅ Access granted! Send .txt file now.")
         else:
             await update.message.reply_text("❌ Wrong password. Try again:")
         return
 
-    # 📄 Stage: Ask for number of files
-    if user_stage.get(user_id) == "awaiting_file_count":
-        if not text.isdigit() or int(text) <= 0:
-            await update.message.reply_text("❌ Enter a valid number greater than 0:")
-            return
+    # After password: user sent how many files
+    if user_auth.get(user_id) is True and user_id in user_files:
+        try:
+            count = int(text)
+            all_numbers = user_files.pop(user_id)
 
-        num_files = int(text)
-        numbers = user_numbers.get(user_id, [])
+            chunks = [all_numbers[i::count] for i in range(count)]
 
-        if not numbers:
-            await update.message.reply_text("❌ No numbers found. Send the .txt file again.")
-            return
+            for i, chunk in enumerate(chunks, 1):
+                vcf = create_multi_vcf(chunk)
+                filename = f"XQUEEN_PART{i}.vcf"
+                with open(filename, "w") as f:
+                    f.write(vcf)
+                await update.message.reply_document(open(filename, "rb"), caption=f"📁 File {i}")
+                os.remove(filename)
 
-        chunk_size = len(numbers) // num_files
-        remainder = len(numbers) % num_files
-        chunks = []
-        start = 0
-        for i in range(num_files):
-            end = start + chunk_size + (1 if i < remainder else 0)
-            chunks.append(numbers[start:end])
-            start = end
-
-        # Send all VCF files
-        for i, chunk in enumerate(chunks):
-            file_name = create_multi_vcf(chunk, i)
-            await update.message.reply_document(document=open(file_name, "rb"), caption=f"📄 File {i+1}")
-            os.remove(file_name)
-
-        user_stage[user_id] = None
-        user_numbers[user_id] = []
+        except ValueError:
+            await update.message.reply_text("❌ Please enter a valid number.")
         return
 
-    # 🚫 Fallback
-    await update.message.reply_text("⚠️ Invalid action. Please upload a .txt file.")
-
-# 📂 Handle .txt upload
+# Handle .txt document
 async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
 
-    if not user_auth.get(user_id):
-        await update.message.reply_text("❌ You must authenticate first using /start.")
+    if user_id not in user_auth or not user_auth[user_id]:
         return
 
-    doc = update.message.document
-    if not doc.file_name.endswith(".txt"):
-        await update.message.reply_text("❌ Please send a .txt file containing phone numbers.")
+    document = update.message.document
+    if not document.file_name.endswith(".txt"):
+        await update.message.reply_text("❌ Please upload a .txt file only.")
         return
 
-    file = await doc.get_file()
-    file_path = await file.download_to_drive()
+    file = await context.bot.get_file(document.file_id)
+    file_path = f"{user_id}_temp.txt"
+    await file.download_to_drive(file_path)
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, "r") as f:
         lines = f.readlines()
-        numbers = [line.strip() for line in lines if line.strip().startswith("+") and line.strip()[1:].isdigit()]
 
     os.remove(file_path)
+
+    numbers = [clean_number(line) for line in lines if line.strip().replace("+", "").isdigit()]
 
     if not numbers:
         await update.message.reply_text("❌ No valid numbers found in file.")
         return
 
-    user_numbers[user_id] = numbers
-    user_stage[user_id] = "awaiting_file_count"
-    await update.message.reply_text(f"📄 Total {len(numbers)} numbers found.\n\n🔢 How many VCF files do you want?")
+    user_files[user_id] = numbers
+    await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\n\n📤 Now tell me how many .vcf files to split into (e.g., 3, 5, 10):")
 
-# ▶️ Launch App
+# 🔁 Run
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_button, pattern="access_vcf"))
-    app.add_handler(MessageHandler(filters.Document.MimeType("text/plain"), handle_doc))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_doc))
     print("✅ Bot is running...")
     app.run_polling()
