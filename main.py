@@ -30,20 +30,6 @@ def clean_number(number: str) -> str:
         number = "+" + number
     return number
 
-# 📇 Create VCF
-def create_multi_vcf(numbers):
-    vcf = ""
-    for idx, phone in enumerate(numbers, 1):
-        name = f"BINORI {idx}"
-        vcf += f"""BEGIN:VCARD
-VERSION:3.0
-N:{name};;;;
-FN:{name}
-TEL;TYPE=CELL:{phone}
-END:VCARD
-"""
-    return vcf
-
 # 🚀 /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     top_buttons = [
@@ -102,12 +88,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for idx, number in enumerate(all_numbers):
                 chunks[idx % count].append(number)
 
+            contact_index = 1  # ✅ Global counter for all files
             for i, chunk in enumerate(chunks, 1):
-                vcf = create_multi_vcf(chunk)
+                vcf = ""
+                for phone in chunk:
+                    name = f"BINORI {contact_index}"
+                    vcf += f"""BEGIN:VCARD
+VERSION:3.0
+N:{name};;;;
+FN:{name}
+TEL;TYPE=CELL:{phone}
+END:VCARD
+"""
+                    contact_index += 1
+
                 filename = f"BINORI_PART_{i}.vcf"
                 with open(filename, "w") as f:
                     f.write(vcf)
-                await update.message.reply_document(open(filename, "rb"), caption=f"📁 File {i}")
+                await update.message.reply_document(open(filename, "rb"), caption=f"📁 File {i} | {len(chunk)} contacts")
                 os.remove(filename)
 
         except ValueError:
