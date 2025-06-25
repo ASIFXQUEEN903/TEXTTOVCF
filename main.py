@@ -1,7 +1,6 @@
 import logging
 import os
-import random
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -11,6 +10,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+# 📞 VCF File Generator
 def create_multi_vcf(numbers):
     vcf = ""
     for phone in numbers:
@@ -25,18 +25,25 @@ END:VCARD
 """
     return vcf
 
-# ✅ /start command handler
+# 🚀 /start Handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("🔗 Owner", url="https://t.me/B8NORI")]
+        [
+            InlineKeyboardButton("📢 Channel", url="https://t.me/WSBINORI"),
+            InlineKeyboardButton("👤 Owner", url="https://t.me/B8NORI")
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "Hey I am personal text to VCF converter of BINORI",
-        reply_markup=reply_markup
+
+    image_url = "https://files.catbox.moe/xv5h9a.jpg"
+    caption = (
+        "👑 Welcome to BINORI's Text ➤ VCF Converter\n"
+        "🔄 Send phone numbers and get .vcf contact file instantly!"
     )
 
-# ✅ text message handler
+    await update.message.reply_photo(photo=image_url, caption=caption, reply_markup=reply_markup)
+
+# ✉️ Text Handler
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw = update.message.text.strip()
     numbers = [line.strip() for line in raw.split("\n") if line.strip().startswith("+") and line.strip()[1:].isdigit()]
@@ -54,9 +61,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_document(document=open(file_name, "rb"), caption=f"✅ {len(numbers)} contacts saved")
     os.remove(file_name)
 
+# 🔁 Main Entry
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    print("✅ Bot is running... (Heroku or Termux ready)")
+    print("✅ Bot is running...")
     app.run_polling()
