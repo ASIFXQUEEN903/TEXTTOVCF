@@ -16,7 +16,7 @@ PASSWORD = "BINORI903"
 OWNER_ID = 5826711802
 user_auth = {}
 user_files = {}
-user_steps = {}  # For tracking file count and name entry
+user_steps = {}
 
 # 📋 LOGGING
 logging.basicConfig(
@@ -41,10 +41,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_photo(
         photo="https://files.catbox.moe/xv5h9a.jpg",
-        caption="👑 Welcome to BINORI's Text ➤ VCF Converter\n🔄 Upload a .txt with numbers and get VCF contacts instantly!",
+        caption="👑 Welcome to BINORI's Text ➤ VCF Converter\n\n🔄 Upload a `.txt` file or paste numbers manually.\n📤 Then get VCF contacts instantly!",
         reply_markup=InlineKeyboardMarkup(top_buttons)
     )
-
     service_button = [[InlineKeyboardButton("🗂 Text to VCF Converter", callback_data="access_vcf")]]
     await update.message.reply_text("👇 Tap the service below:", reply_markup=InlineKeyboardMarkup(service_button))
 
@@ -56,12 +55,12 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if user_id == OWNER_ID:
         user_auth[user_id] = True
-        await query.message.reply_text("✅ Verified as owner! Send .txt file now.")
+        await query.message.reply_text("✅ Verified as owner! Send .txt file or paste numbers manually.")
     else:
         user_auth[user_id] = False
         await query.message.reply_text("🔑 Enter password to unlock VCF Converter:")
 
-# 📝 Text: password / count / file name
+# 📝 Text: password / count / filename / manual number input
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
@@ -73,12 +72,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_auth[user_id] is False:
         if text == PASSWORD:
             user_auth[user_id] = True
-            await update.message.reply_text("✅ Access granted! Now send .txt file.")
+            await update.message.reply_text("✅ Access granted! Now send .txt file or paste numbers manually.")
         else:
             await update.message.reply_text("❌ Wrong password. Try again:")
         return
 
-    # Step 1: Ask how many files
+    # 📄 Manual number input
+    if user_id not in user_files and user_id not in user_steps:
+        lines = text.split("\n")
+        numbers = [clean_number(line) for line in lines if line.strip().replace("+", "").isdigit()]
+        if numbers:
+            user_files[user_id] = numbers
+            await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\n\n📤 How many .vcf files do you want? (e.g., 3, 5, 10):")
+            return
+
+    # Step 1: Ask for file count
     if user_id in user_files and user_id not in user_steps:
         try:
             count = int(text)
@@ -98,7 +106,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         all_numbers = user_files.pop(user_id)
         chunks = [[] for _ in range(count)]
 
-        # Split numbers round-robin
+        # Round-robin distribute
         for idx, number in enumerate(all_numbers):
             chunks[idx % count].append(number)
 
@@ -139,11 +147,9 @@ async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with open(file_path, "r") as f:
         lines = f.readlines()
-
     os.remove(file_path)
 
     numbers = [clean_number(line) for line in lines if line.strip().replace("+", "").isdigit()]
-
     if not numbers:
         await update.message.reply_text("❌ No valid numbers found in file.")
         return
@@ -151,7 +157,7 @@ async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_files[user_id] = numbers
     await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\n\n📤 How many .vcf files do you want? (e.g., 3, 5, 10):")
 
-# 🔁 /chapass (change password - owner only)
+# 🔁 /chapass command
 async def change_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != OWNER_ID:
