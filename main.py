@@ -1,6 +1,6 @@
 import logging
 import os
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, Document
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
@@ -13,9 +13,10 @@ from telegram.ext import (
 # 🔐 ENV and Config
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PASSWORD = "BINORI903"
-OWNER_ID = 5826711802  # Password bypass & /chapass access
+OWNER_ID = 5826711802
 user_auth = {}
 user_files = {}
+user_steps = {}  # For tracking file count and name entry
 
 # 📋 LOGGING
 logging.basicConfig(
@@ -60,7 +61,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_auth[user_id] = False
         await query.message.reply_text("🔑 Enter password to unlock VCF Converter:")
 
-# 📝 Text: either password or file count
+# 📝 Text: password / count / file name
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
@@ -68,7 +69,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_auth:
         return
 
-    # 🔑 Password phase
+    # 🔑 Password check
     if user_auth[user_id] is False:
         if text == PASSWORD:
             user_auth[user_id] = True
@@ -77,39 +78,49 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Wrong password. Try again:")
         return
 
-    # 🔢 Count of split files
-    if user_auth.get(user_id) and user_id in user_files:
+    # Step 1: Ask how many files
+    if user_id in user_files and user_id not in user_steps:
         try:
             count = int(text)
-            all_numbers = user_files.pop(user_id)
-            chunks = [[] for _ in range(count)]
+            if count <= 0:
+                raise ValueError
+            user_steps[user_id] = {"count": count}
+            await update.message.reply_text("📝 Great! Now send the file name (e.g. QueenList):")
+        except ValueError:
+            await update.message.reply_text("❌ Please enter a valid number (like 3, 5, 10).")
+        return
 
-            # 🔁 Distribute numbers round-robin
-            for idx, number in enumerate(all_numbers):
-                chunks[idx % count].append(number)
+    # Step 2: Ask for file name
+    if user_id in user_steps:
+        info = user_steps.pop(user_id)
+        count = info["count"]
+        base_name = text.strip().replace(" ", "_")
+        all_numbers = user_files.pop(user_id)
+        chunks = [[] for _ in range(count)]
 
-            contact_index = 1  # ✅ Global counter for all files
-            for i, chunk in enumerate(chunks, 1):
-                vcf = ""
-                for phone in chunk:
-                    name = f"BINORI {contact_index}"
-                    vcf += f"""BEGIN:VCARD
+        # Split numbers round-robin
+        for idx, number in enumerate(all_numbers):
+            chunks[idx % count].append(number)
+
+        contact_index = 1
+        for i, chunk in enumerate(chunks, 1):
+            vcf = ""
+            for phone in chunk:
+                name = f"{base_name} {contact_index}"
+                vcf += f"""BEGIN:VCARD
 VERSION:3.0
 N:{name};;;;
 FN:{name}
 TEL;TYPE=CELL:{phone}
 END:VCARD
 """
-                    contact_index += 1
+                contact_index += 1
 
-                filename = f"BINORI_PART_{i}.vcf"
-                with open(filename, "w") as f:
-                    f.write(vcf)
-                await update.message.reply_document(open(filename, "rb"), caption=f"📁 File {i} | {len(chunk)} contacts")
-                os.remove(filename)
-
-        except ValueError:
-            await update.message.reply_text("❌ Please enter a valid number (like 3, 5, 10).")
+            filename = f"{base_name} {i}.vcf"
+            with open(filename, "w") as f:
+                f.write(vcf)
+            await update.message.reply_document(open(filename, "rb"), caption=f"📁 {filename} | {len(chunk)} contacts")
+            os.remove(filename)
 
 # 📄 .txt file handler
 async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -140,7 +151,7 @@ async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_files[user_id] = numbers
     await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\n\n📤 How many .vcf files do you want? (e.g., 3, 5, 10):")
 
-# 🔁 /chapass (owner only)
+# 🔁 /chapass (change password - owner only)
 async def change_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != OWNER_ID:
@@ -155,7 +166,7 @@ async def change_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     PASSWORD = context.args[0]
     await update.message.reply_text(f"✅ Password changed to: `{PASSWORD}`", parse_mode="Markdown")
 
-# ▶️ Main
+# ▶️ Main run
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
