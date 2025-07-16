@@ -31,8 +31,27 @@ def clean_number(number: str) -> str:
         number = "+" + number
     return number
 
-# 🚀 /start
+# 🚀 /start (with channel join check)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    channel_username = "WSBINORI"
+
+    try:
+        member = await context.bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
+        if member.status in ["left", "kicked"]:
+            raise Exception("User not joined")
+    except:
+        join_button = [
+            [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{channel_username}")],
+            [InlineKeyboardButton("✅ I’ve Joined", callback_data="access_vcf")]
+        ]
+        await update.message.reply_text(
+            "🚫 Access Denied!\n\n👋 Please join our official channel to use this bot.",
+            reply_markup=InlineKeyboardMarkup(join_button)
+        )
+        return
+
+    # Already a member — continue with normal flow
     top_buttons = [
         [
             InlineKeyboardButton("📢 Channel", url="https://t.me/WSBINORI"),
@@ -52,6 +71,22 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+
+    # Recheck join status when user clicks "I’ve Joined"
+    try:
+        member = await context.bot.get_chat_member(chat_id="@WSBINORI", user_id=user_id)
+        if member.status in ["left", "kicked"]:
+            raise Exception("User not joined")
+    except:
+        join_button = [
+            [InlineKeyboardButton("📢 Join Channel", url="https://t.me/WSBINORI")],
+            [InlineKeyboardButton("✅ I’ve Joined", callback_data="access_vcf")]
+        ]
+        await query.message.reply_text(
+            "🚫 Still not joined.\n\nPlease join the channel to continue.",
+            reply_markup=InlineKeyboardMarkup(join_button)
+        )
+        return
 
     if user_id == OWNER_ID:
         user_auth[user_id] = True
