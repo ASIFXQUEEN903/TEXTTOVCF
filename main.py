@@ -71,7 +71,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Show welcome content after successful join
     await send_welcome(user_id, context)
 
-# 🔘 Button handler: "I’ve Joined" and unlock
+# 🔘 Button handler: "I’ve Joined" and unlock (without repeating welcome)
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -93,15 +93,13 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ✅ Joined — continue normal flow
+    # ✅ Joined — allow access
     if user_id == OWNER_ID:
         user_auth[user_id] = True
         await query.message.reply_text("✅ Verified as owner! Send .txt file or paste numbers manually.")
     else:
         user_auth[user_id] = False
         await query.message.reply_text("🔑 Enter password to unlock VCF Converter:")
-
-    await send_welcome(user_id, context)
 
 # 📝 Text: password / count / filename / manual number input
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
