@@ -14,7 +14,7 @@ OWNER_ID = 5826711802
 user_auth = {}
 user_files = {}
 user_steps = {}
-user_seen_start = {}  # Track welcome shown
+user_seen_start = {}
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -45,7 +45,7 @@ async def send_welcome(user_id, context):
         ])
     )
 
-# 🚀 /start
+# 🚀 /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     try:
@@ -57,18 +57,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🚫 Access Denied!\n\n👋 Please join our official channel to use this bot.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📢 Join Channel", url="https://t.me/WSBINORI")],
-                [InlineKeyboardButton("✅ I’ve Joined", callback_data="access_vcf")]
+                [InlineKeyboardButton("✅ I’ve Joined", url="https://t.me/atokick_ws_bot?start=_")]
             ])
         )
         return
     user_seen_start[user_id] = True
     await send_welcome(user_id, context)
 
-# 🔘 Button Handler
+# 🔘 Callback Button Handler (for "Text to VCF Converter")
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
+
     try:
         member = await context.bot.get_chat_member("@WSBINORI", user_id)
         if member.status in ["left", "kicked"]:
@@ -78,14 +79,14 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🚫 Still not joined.\n\nPlease join the channel to continue.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📢 Join Channel", url="https://t.me/WSBINORI")],
-                [InlineKeyboardButton("✅ I’ve Joined", callback_data="access_vcf")]
+                [InlineKeyboardButton("✅ I’ve Joined", url="https://t.me/atokick_ws_bot?start=_")]
             ])
         )
         return
 
     if not user_seen_start.get(user_id):
-        user_seen_start[user_id] = True
         await send_welcome(user_id, context)
+        user_seen_start[user_id] = True
         return
 
     if user_id == OWNER_ID:
@@ -96,7 +97,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_auth[user_id] = False
         await context.bot.send_message(user_id, "🔑 Enter password to unlock VCF Converter:")
 
-# 📝 Text Handler
+# 📝 Handle user text input
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
@@ -161,7 +162,7 @@ END:VCARD
             await update.message.reply_document(open(filename, "rb"), caption=f"📁 {filename} | {len(chunk)} contacts")
             os.remove(filename)
 
-# 📂 .txt file handler
+# 📂 Handle .txt file uploads
 async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if not user_auth.get(user_id):
@@ -188,7 +189,7 @@ async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_files[user_id] = numbers
     await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\n\n📤 How many .vcf files do you want? (e.g., 3, 5, 10):")
 
-# 🔁 /chapass command
+# 🔁 Change password command
 async def change_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != OWNER_ID:
@@ -203,7 +204,7 @@ async def change_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     PASSWORD = context.args[0]
     await update.message.reply_text(f"✅ Password changed to: `{PASSWORD}`", parse_mode="Markdown")
 
-# ▶️ Main
+# ▶️ Main runner
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
