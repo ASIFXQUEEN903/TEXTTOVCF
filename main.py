@@ -31,7 +31,24 @@ def clean_number(number: str) -> str:
         number = "+" + number
     return number
 
-# 🚀 /start (with channel join check)
+# 📦 Shared welcome message function
+async def send_welcome(user_id, context):
+    top_buttons = [
+        [
+            InlineKeyboardButton("📢 Channel", url="https://t.me/WSBINORI"),
+            InlineKeyboardButton("👤 Owner", url="https://t.me/B8NORI")
+        ]
+    ]
+    await context.bot.send_photo(
+        chat_id=user_id,
+        photo="https://files.catbox.moe/xv5h9a.jpg",
+        caption="👑 Welcome to BINORI's Text ➤ VCF Converter\n\n🔄 Upload a `.txt` file or paste numbers manually.\n📤 Then get VCF contacts instantly!",
+        reply_markup=InlineKeyboardMarkup(top_buttons)
+    )
+    service_button = [[InlineKeyboardButton("🗂 Text to VCF Converter", callback_data="access_vcf")]]
+    await context.bot.send_message(chat_id=user_id, text="👇 Tap the service below:", reply_markup=InlineKeyboardMarkup(service_button))
+
+# 🚀 /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     channel_username = "WSBINORI"
@@ -51,28 +68,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Already a member — continue with normal flow
-    top_buttons = [
-        [
-            InlineKeyboardButton("📢 Channel", url="https://t.me/WSBINORI"),
-            InlineKeyboardButton("👤 Owner", url="https://t.me/B8NORI")
-        ]
-    ]
-    await update.message.reply_photo(
-        photo="https://files.catbox.moe/xv5h9a.jpg",
-        caption="👑 Welcome to BINORI's Text ➤ VCF Converter\n\n🔄 Upload a `.txt` file or paste numbers manually.\n📤 Then get VCF contacts instantly!",
-        reply_markup=InlineKeyboardMarkup(top_buttons)
-    )
-    service_button = [[InlineKeyboardButton("🗂 Text to VCF Converter", callback_data="access_vcf")]]
-    await update.message.reply_text("👇 Tap the service below:", reply_markup=InlineKeyboardMarkup(service_button))
+    # Show welcome content after successful join
+    await send_welcome(user_id, context)
 
-# 🔘 Button: ask password (unless OWNER)
+# 🔘 Button handler: "I’ve Joined" and unlock
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
 
-    # Recheck join status when user clicks "I’ve Joined"
+    # Recheck channel join status
     try:
         member = await context.bot.get_chat_member(chat_id="@WSBINORI", user_id=user_id)
         if member.status in ["left", "kicked"]:
@@ -88,12 +93,15 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # ✅ Joined — continue normal flow
     if user_id == OWNER_ID:
         user_auth[user_id] = True
         await query.message.reply_text("✅ Verified as owner! Send .txt file or paste numbers manually.")
     else:
         user_auth[user_id] = False
         await query.message.reply_text("🔑 Enter password to unlock VCF Converter:")
+
+    await send_welcome(user_id, context)
 
 # 📝 Text: password / count / filename / manual number input
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,7 +111,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_auth:
         return
 
-    # 🔑 Password check
     if user_auth[user_id] is False:
         if text == PASSWORD:
             user_auth[user_id] = True
@@ -112,7 +119,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Wrong password. Try again:")
         return
 
-    # 📄 Manual number input
     if user_id not in user_files and user_id not in user_steps:
         lines = text.split("\n")
         numbers = [clean_number(line) for line in lines if line.strip().replace("+", "").isdigit()]
@@ -121,7 +127,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\n\n📤 How many .vcf files do you want? (e.g., 3, 5, 10):")
             return
 
-    # Step 1: Ask for file count
     if user_id in user_files and user_id not in user_steps:
         try:
             count = int(text)
@@ -133,7 +138,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Please enter a valid number (like 3, 5, 10).")
         return
 
-    # Step 2: Ask for file name
     if user_id in user_steps:
         info = user_steps.pop(user_id)
         count = info["count"]
@@ -141,7 +145,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         all_numbers = user_files.pop(user_id)
         chunks = [[] for _ in range(count)]
 
-        # Round-robin distribute
         for idx, number in enumerate(all_numbers):
             chunks[idx % count].append(number)
 
