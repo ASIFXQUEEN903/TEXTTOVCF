@@ -3,11 +3,10 @@ import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, ContextTypes,
-    CommandHandler, MessageHandler,
-    CallbackQueryHandler, filters
+    CommandHandler, CallbackQueryHandler,
+    MessageHandler, filters
 )
 
-# 🔐 Config
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PASSWORD = "BINORI903"
 OWNER_ID = 5826711802
@@ -15,31 +14,27 @@ OWNER_ID = 5826711802
 user_auth = {}
 user_files = {}
 user_steps = {}
+user_seen_start = {}  # Track welcome shown
 
-# 📋 Logger
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-# ➕ Clean phone number
 def clean_number(number: str) -> str:
     number = number.strip()
     if not number.startswith("+"):
         number = "+" + number
     return number
 
-# 📸 Welcome image with buttons
 async def send_welcome(user_id, context):
     await context.bot.send_photo(
         chat_id=user_id,
         photo="https://files.catbox.moe/xv5h9a.jpg",
         caption="👑 Welcome to BINORI's Text ➤ VCF Converter\n\n🔄 Upload a `.txt` file or paste numbers manually.\n📤 Then get VCF contacts instantly!",
         reply_markup=InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("📢 Channel", url="https://t.me/WSBINORI"),
-                InlineKeyboardButton("👤 Owner", url="https://t.me/B8NORI")
-            ]
+            [InlineKeyboardButton("📢 Channel", url="https://t.me/WSBINORI"),
+             InlineKeyboardButton("👤 Owner", url="https://t.me/B8NORI")]
         ])
     )
     await context.bot.send_message(
@@ -50,7 +45,7 @@ async def send_welcome(user_id, context):
         ])
     )
 
-# 🚀 /start command
+# 🚀 /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     try:
@@ -58,7 +53,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if member.status in ["left", "kicked"]:
             raise Exception("Not joined")
     except:
-        # Not joined
         await update.message.reply_text(
             "🚫 Access Denied!\n\n👋 Please join our official channel to use this bot.",
             reply_markup=InlineKeyboardMarkup([
@@ -67,19 +61,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
         return
-    # If joined
+    user_seen_start[user_id] = True
     await send_welcome(user_id, context)
 
-# 🔘 Callback button handler
+# 🔘 Button Handler
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
-
     try:
         member = await context.bot.get_chat_member("@WSBINORI", user_id)
         if member.status in ["left", "kicked"]:
-            raise Exception("Still not joined")
+            raise Exception("Not joined")
     except:
         await query.message.reply_text(
             "🚫 Still not joined.\n\nPlease join the channel to continue.",
@@ -90,7 +83,11 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ✅ Only ask password or allow owner
+    if not user_seen_start.get(user_id):
+        user_seen_start[user_id] = True
+        await send_welcome(user_id, context)
+        return
+
     if user_id == OWNER_ID:
         user_auth[user_id] = True
         await context.bot.send_message(user_id, "✅ Verified as owner! Send .txt file or paste numbers manually.")
@@ -99,7 +96,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_auth[user_id] = False
         await context.bot.send_message(user_id, "🔑 Enter password to unlock VCF Converter:")
 
-# 📝 Text input handler
+# 📝 Text Handler
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
@@ -107,7 +104,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_auth:
         return
 
-    # 🔑 Password input
     if user_auth[user_id] is False:
         if text == PASSWORD:
             user_auth[user_id] = True
@@ -116,7 +112,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Wrong password. Try again:")
         return
 
-    # 📄 Manual number input
     if user_id not in user_files and user_id not in user_steps:
         lines = text.split("\n")
         numbers = [clean_number(line) for line in lines if line.strip().replace("+", "").isdigit()]
@@ -125,7 +120,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\n\n📤 How many .vcf files do you want? (e.g., 3, 5, 10):")
             return
 
-    # Step 1: Ask file count
     if user_id in user_files and user_id not in user_steps:
         try:
             count = int(text)
@@ -137,7 +131,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Please enter a valid number (like 3, 5, 10).")
         return
 
-    # Step 2: Ask file name
     if user_id in user_steps:
         info = user_steps.pop(user_id)
         count = info["count"]
@@ -195,7 +188,7 @@ async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_files[user_id] = numbers
     await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\n\n📤 How many .vcf files do you want? (e.g., 3, 5, 10):")
 
-# 🔁 Change password
+# 🔁 /chapass command
 async def change_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != OWNER_ID:
@@ -210,7 +203,7 @@ async def change_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     PASSWORD = context.args[0]
     await update.message.reply_text(f"✅ Password changed to: `{PASSWORD}`", parse_mode="Markdown")
 
-# ▶️ Run
+# ▶️ Main
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
