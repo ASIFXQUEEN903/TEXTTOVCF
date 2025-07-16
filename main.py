@@ -17,6 +17,7 @@ OWNER_ID = 5826711802
 user_auth = {}
 user_files = {}
 user_steps = {}
+user_shown_welcome = {}  # 💡 New dict to track first welcome
 
 # 📋 LOGGING
 logging.basicConfig(
@@ -24,20 +25,20 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# ✂️ Clean number and ensure +
 def clean_number(number: str) -> str:
     number = number.strip()
     if not number.startswith("+"):
         number = "+" + number
     return number
 
-# 📦 Shared welcome message function
+# 📦 Send welcome message only once
 async def send_welcome(user_id, context):
+    if user_shown_welcome.get(user_id):
+        return
+    user_shown_welcome[user_id] = True
     top_buttons = [
-        [
-            InlineKeyboardButton("📢 Channel", url="https://t.me/WSBINORI"),
-            InlineKeyboardButton("👤 Owner", url="https://t.me/B8NORI")
-        ]
+        [InlineKeyboardButton("📢 Channel", url="https://t.me/WSBINORI"),
+         InlineKeyboardButton("👤 Owner", url="https://t.me/B8NORI")]
     ]
     await context.bot.send_photo(
         chat_id=user_id,
@@ -48,61 +49,48 @@ async def send_welcome(user_id, context):
     service_button = [[InlineKeyboardButton("🗂 Text to VCF Converter", callback_data="access_vcf")]]
     await context.bot.send_message(chat_id=user_id, text="👇 Tap the service below:", reply_markup=InlineKeyboardMarkup(service_button))
 
-# 🚀 /start command
+# 🚀 /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    channel_username = "WSBINORI"
-
     try:
-        member = await context.bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
+        member = await context.bot.get_chat_member("@WSBINORI", user_id)
         if member.status in ["left", "kicked"]:
-            raise Exception("User not joined")
+            raise Exception("Not joined")
     except:
-        join_button = [
-            [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{channel_username}")],
-            [InlineKeyboardButton("✅ I’ve Joined", callback_data="access_vcf")]
-        ]
-        await update.message.reply_text(
-            "🚫 Access Denied!\n\n👋 Please join our official channel to use this bot.",
-            reply_markup=InlineKeyboardMarkup(join_button)
-        )
+        buttons = [[InlineKeyboardButton("📢 Join Channel", url="https://t.me/WSBINORI")],
+                   [InlineKeyboardButton("✅ I’ve Joined", callback_data="access_vcf")]]
+        await update.message.reply_text("🚫 Access Denied!\n\n👋 Please join our official channel to use this bot.", reply_markup=InlineKeyboardMarkup(buttons))
         return
-
     await send_welcome(user_id, context)
 
-# 🔘 Handle "✅ I’ve Joined" button
+# 🔘 Handle "✅ I’ve Joined" or button click
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
+    await query.answer()
 
     try:
-        member = await context.bot.get_chat_member(chat_id="@WSBINORI", user_id=user_id)
+        member = await context.bot.get_chat_member("@WSBINORI", user_id)
         if member.status in ["left", "kicked"]:
-            raise Exception("User not joined")
+            raise Exception("Not joined")
     except:
-        join_button = [
-            [InlineKeyboardButton("📢 Join Channel", url="https://t.me/WSBINORI")],
-            [InlineKeyboardButton("✅ I’ve Joined", callback_data="access_vcf")]
-        ]
-        await query.message.reply_text(
-            "🚫 Still not joined.\n\nPlease join the channel to continue.",
-            reply_markup=InlineKeyboardMarkup(join_button)
-        )
+        buttons = [[InlineKeyboardButton("📢 Join Channel", url="https://t.me/WSBINORI")],
+                   [InlineKeyboardButton("✅ I’ve Joined", callback_data="access_vcf")]]
+        await query.message.reply_text("🚫 Still not joined.\n\nPlease join the channel to continue.", reply_markup=InlineKeyboardMarkup(buttons))
         return
 
-    # ✅ Joined — show welcome again
     await send_welcome(user_id, context)
 
-    # 👑 Access unlock
+    # 🔑 Access flow
     if user_id == OWNER_ID:
         user_auth[user_id] = True
-        await context.bot.send_message(chat_id=user_id, text="✅ Verified as owner! Send .txt file or paste numbers manually.")
+        await context.bot.send_message(user_id, "✅ Verified as owner! Send .txt file or paste numbers manually.")
     else:
-        user_auth[user_id] = False
-        await context.bot.send_message(chat_id=user_id, text="🔑 Enter password to unlock VCF Converter:")
+        if not user_auth.get(user_id):
+            user_auth[user_id] = False
+        await context.bot.send_message(user_id, "🔑 Enter password to unlock VCF Converter:")
 
-# 📝 Handle text messages (password / number input / filename etc.)
+# 📝 Handle password, number input, file count, file name
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
@@ -138,10 +126,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if user_id in user_steps:
-        info = user_steps.pop(user_id)
-        count = info["count"]
+        count = user_steps[user_id]["count"]
         base_name = text.strip().replace(" ", "_")
         all_numbers = user_files.pop(user_id)
+        user_steps.pop(user_id)
         chunks = [[] for _ in range(count)]
 
         for idx, number in enumerate(all_numbers):
@@ -161,25 +149,25 @@ END:VCARD
 """
                 contact_index += 1
 
-            filename = f"{base_name} {i}.vcf"
+            filename = f"{base_name}_{i}.vcf"
             with open(filename, "w") as f:
                 f.write(vcf)
             await update.message.reply_document(open(filename, "rb"), caption=f"📁 {filename} | {len(chunk)} contacts")
             os.remove(filename)
 
-# 📄 Handle .txt file uploads
+# 📄 Handle .txt upload
 async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    if user_id not in user_auth or not user_auth[user_id]:
+    if not user_auth.get(user_id):
         return
 
-    document = update.message.document
-    if not document.file_name.endswith(".txt"):
+    doc = update.message.document
+    if not doc.file_name.endswith(".txt"):
         await update.message.reply_text("❌ Only .txt files allowed.")
         return
 
-    file = await context.bot.get_file(document.file_id)
     file_path = f"{user_id}_temp.txt"
+    file = await context.bot.get_file(doc.file_id)
     await file.download_to_drive(file_path)
 
     with open(file_path, "r") as f:
@@ -194,30 +182,27 @@ async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_files[user_id] = numbers
     await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\n\n📤 How many .vcf files do you want? (e.g., 3, 5, 10):")
 
-# 🔁 Change password with /chapass
+# 🔁 Change password
 async def change_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != OWNER_ID:
         await update.message.reply_text("❌ You're not allowed to use this command.")
         return
-
     if not context.args:
-        await update.message.reply_text("⚠️ Usage: /chapass NEWPASSWORD")
+        await update.message.reply_text("⚠️ Usage: /chapass NEWPASS")
         return
 
     global PASSWORD
     PASSWORD = context.args[0]
     await update.message.reply_text(f"✅ Password changed to: `{PASSWORD}`", parse_mode="Markdown")
 
-# ▶️ Main bot runner
+# ▶️ Run
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_button, pattern="access_vcf"))
     app.add_handler(CommandHandler("chapass", change_password))
+    app.add_handler(CallbackQueryHandler(handle_button, pattern="access_vcf"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_doc))
-
     print("✅ Bot is running...")
     app.run_polling()
