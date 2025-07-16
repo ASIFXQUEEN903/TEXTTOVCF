@@ -48,7 +48,7 @@ async def send_welcome(user_id, context):
     service_button = [[InlineKeyboardButton("🗂 Text to VCF Converter", callback_data="access_vcf")]]
     await context.bot.send_message(chat_id=user_id, text="👇 Tap the service below:", reply_markup=InlineKeyboardMarkup(service_button))
 
-# 🚀 /start
+# 🚀 /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     channel_username = "WSBINORI"
@@ -68,16 +68,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Show welcome content after successful join
     await send_welcome(user_id, context)
 
-# 🔘 Button handler: "I’ve Joined" and unlock (without repeating welcome)
+# 🔘 Handle "✅ I’ve Joined" button
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
 
-    # Recheck channel join status
     try:
         member = await context.bot.get_chat_member(chat_id="@WSBINORI", user_id=user_id)
         if member.status in ["left", "kicked"]:
@@ -93,15 +91,18 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ✅ Joined — allow access
+    # ✅ Joined — show welcome again
+    await send_welcome(user_id, context)
+
+    # 👑 Access unlock
     if user_id == OWNER_ID:
         user_auth[user_id] = True
-        await query.message.reply_text("✅ Verified as owner! Send .txt file or paste numbers manually.")
+        await context.bot.send_message(chat_id=user_id, text="✅ Verified as owner! Send .txt file or paste numbers manually.")
     else:
         user_auth[user_id] = False
-        await query.message.reply_text("🔑 Enter password to unlock VCF Converter:")
+        await context.bot.send_message(chat_id=user_id, text="🔑 Enter password to unlock VCF Converter:")
 
-# 📝 Text: password / count / filename / manual number input
+# 📝 Handle text messages (password / number input / filename etc.)
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text.strip()
@@ -166,7 +167,7 @@ END:VCARD
             await update.message.reply_document(open(filename, "rb"), caption=f"📁 {filename} | {len(chunk)} contacts")
             os.remove(filename)
 
-# 📄 .txt file handler
+# 📄 Handle .txt file uploads
 async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if user_id not in user_auth or not user_auth[user_id]:
@@ -193,7 +194,7 @@ async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_files[user_id] = numbers
     await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\n\n📤 How many .vcf files do you want? (e.g., 3, 5, 10):")
 
-# 🔁 /chapass command
+# 🔁 Change password with /chapass
 async def change_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != OWNER_ID:
@@ -208,7 +209,7 @@ async def change_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     PASSWORD = context.args[0]
     await update.message.reply_text(f"✅ Password changed to: `{PASSWORD}`", parse_mode="Markdown")
 
-# ▶️ Main run
+# ▶️ Main bot runner
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
