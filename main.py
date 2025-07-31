@@ -244,15 +244,15 @@ async def rm_sudo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     auth_col.delete_one({"_id": user_id})
     await update.message.reply_text(f"✅ Sudo removed for user ID `{user_id}`", parse_mode="Markdown")
 # ▶️ Run bot
-if __name__ == \"__main__\":
+if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler(\"start\", start))
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_doc))
-    app.add_handler(CommandHandler(\"chapass\", change_pass))
-    app.add_handler(CommandHandler(\"broadcast\", broadcast))
-    app.add_handler(CommandHandler(\"addsudo\", add_sudo))
-    app.add_handler(CommandHandler(\"rmsudo\", rm_sudo))
-    print(\"✅ Bot running...\")
+    app.add_handler(CommandHandler("chapass", change_pass))
+    app.add_handler(CommandHandler("broadcast", broadcast))
+    app.add_handler(CommandHandler("addsudo", add_sudo))
+    app.add_handler(CommandHandler("rmsudo", rm_sudo))
+    print("✅ Bot running...")
     app.run_polling()
