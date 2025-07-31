@@ -229,8 +229,7 @@ async def add_sudo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("❌ Invalid user.")
     
     auth_col.update_one({"_id": user_id}, {"$set": {}}, upsert=True)
-    await update.message.reply_text(f"✅ Sudo added for user ID `{user_id}`", parse_mode=\"Markdown\")
-
+    await update.message.reply_text(f"✅ Sudo added for user ID `{user_id}`", parse_mode="Markdown")
 # ➖ /rmsudo
 async def rm_sudo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -243,8 +242,7 @@ async def rm_sudo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("❌ Invalid user.")
     
     auth_col.delete_one({"_id": user_id})
-    await update.message.reply_text(f"✅ Sudo removed for user ID `{user_id}`", parse_mode=\"Markdown\")
-
+    await update.message.reply_text(f"✅ Sudo removed for user ID `{user_id}`", parse_mode="Markdown")
 # ▶️ Run bot
 if __name__ == \"__main__\":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
