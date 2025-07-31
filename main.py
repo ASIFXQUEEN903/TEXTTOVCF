@@ -1,9 +1,7 @@
 import os
 import logging
 import asyncio
-from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatType
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
@@ -12,29 +10,29 @@ from telegram.ext import (
 from telegram.error import BadRequest
 from pymongo import MongoClient
 
-# 🌐 Env Vars
+# 🔐 ENV
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID"))
 MONGO_URL = os.getenv("MONGO_URL")
 
-# 📦 MongoDB Setup
+# 🌐 MongoDB
 mongo = MongoClient(MONGO_URL)
 db = mongo["vcfbot"]
 auth_col = db["auth_users"]
 pass_col = db["password"]
 user_col = db["broadcast_users"]
 
-# 📋 Logging
+# 📌 Logger
 logging.basicConfig(level=logging.INFO)
 
-# 🔐 Clean + Format number
+# ✅ Clean number
 def clean_number(number: str) -> str:
     number = number.strip()
     if not number.startswith("+"):
         number = "+" + number
     return number
 
-# 🔰 Ensure default password
+# 🔑 Password
 def get_password():
     data = pass_col.find_one({"_id": "password"})
     return data["value"] if data else "BINORI903"
@@ -42,10 +40,24 @@ def get_password():
 def set_password(new_pass):
     pass_col.update_one({"_id": "password"}, {"$set": {"value": new_pass}}, upsert=True)
 
-# 📍 /start
+# 🚀 Start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_col.update_one({"_id": user_id}, {"$set": {}}, upsert=True)
+
+    try:
+        member = await context.bot.get_chat_member("@WSBINORI", user_id)
+        if member.status in ["left", "kicked"]:
+            raise Exception("Not joined")
+    except:
+        await update.message.reply_text(
+            "🚫 Please join our channel to access this bot.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📢 Join Channel", url="https://t.me/WSBINORI")],
+                [InlineKeyboardButton("✅ I’ve Joined", callback_data="access_vcf")]
+            ])
+        )
+        return
 
     await context.bot.send_photo(
         chat_id=user_id,
@@ -64,11 +76,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
     )
 
-# 🎛 Button access
+# 🧠 Access Handler
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
+
+    try:
+        member = await context.bot.get_chat_member("@WSBINORI", user_id)
+        if member.status in ["left", "kicked"]:
+            raise Exception("Not in channel")
+    except:
+        await query.message.reply_text(
+            "🚫 Still not joined. Join the channel to continue.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📢 Join Channel", url="https://t.me/WSBINORI")],
+                [InlineKeyboardButton("✅ I’ve Joined", callback_data="access_vcf")]
+            ])
+        )
+        return
 
     is_owner_or_sudo = user_id == OWNER_ID or auth_col.find_one({"_id": user_id})
     if not is_owner_or_sudo:
@@ -79,7 +105,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["auth"] = True
     await query.message.reply_text("✅ You are verified! Now send .txt file or paste numbers.")
 
-# 📝 User input
+# 📝 Text Input
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -87,11 +113,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting_pass"):
         if text == get_password():
             context.user_data["auth"] = True
-            auth_col.insert_one({"_id": user_id})
+            auth_col.update_one({"_id": user_id}, {"$set": {}}, upsert=True)
             await update.message.reply_text("✅ Access granted! Now send .txt file or paste numbers.")
         else:
             await update.message.reply_text("❌ Wrong password. Try again:")
-        context.user_data["awaiting_pass"] = False
+            context.user_data["awaiting_pass"] = True
         return
 
     if not context.user_data.get("auth") and user_id != OWNER_ID:
@@ -106,18 +132,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     elif "count" not in context.user_data:
         try:
-            count = int(text)
-            context.user_data["count"] = count
+            context.user_data["count"] = int(text)
             await update.message.reply_text("📝 Send base filename (e.g. QueenList):")
         except:
-            await update.message.reply_text("❌ Enter valid number.")
+            await update.message.reply_text("❌ Please enter a valid number.")
         return
     else:
         count = context.user_data["count"]
         numbers = context.user_data["numbers"]
-        filename = text.strip().replace(" ", "_")
+        filename = text.replace(" ", "_")
         chunks = [[] for _ in range(count)]
-
         for i, num in enumerate(numbers):
             chunks[i % count].append(num)
 
@@ -142,7 +166,7 @@ END:VCARD
 
         context.user_data.clear()
 
-# 📁 .txt Uploads
+# 📁 .txt File
 async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not context.user_data.get("auth") and user_id != OWNER_ID:
@@ -150,8 +174,7 @@ async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     doc = update.message.document
     if not doc.file_name.endswith(".txt"):
-        await update.message.reply_text("❌ Only .txt files allowed.")
-        return
+        return await update.message.reply_text("❌ Only .txt files are allowed.")
 
     file_path = f"{user_id}_temp.txt"
     file = await context.bot.get_file(doc.file_id)
@@ -163,47 +186,38 @@ async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     numbers = [clean_number(line) for line in lines if line.strip().replace("+", "").isdigit()]
     if not numbers:
-        await update.message.reply_text("❌ No valid numbers found.")
-        return
+        return await update.message.reply_text("❌ No valid numbers found.")
 
     context.user_data["numbers"] = numbers
-    await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\nHow many VCF files?")
+    await update.message.reply_text(f"✅ Found {len(numbers)} numbers. How many VCF files?")
 
 # 🔐 /chapass
 async def change_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
-        return await update.message.reply_text("❌ You’re not authorized.")
+        return await update.message.reply_text("❌ You are not authorized.")
     if not context.args:
         return await update.message.reply_text("⚠️ Usage: /chapass NEWPASS")
     set_password(context.args[0])
-    await update.message.reply_text(f"✅ Password changed to: `{context.args[0]}`", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Password changed to `{context.args[0]}`", parse_mode="Markdown")
 
 # 📢 /broadcast
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
-        return await update.message.reply_text("❌ Unauthorized.")
-    if update.message.reply_to_message:
-        target = update.message.reply_to_message
-    else:
-        if not context.args:
-            return await update.message.reply_text("⚠️ Reply to a message or use: /broadcast Hello users!")
-        text = " ".join(context.args)
-        target = await update.message.reply_text("✅ Broadcasting...")
-
-    total = 0
-    failed = 0
+        return await update.message.reply_text("❌ You are not authorized.")
+    msg = update.message.reply_to_message or update.message
     users = user_col.find()
+    total, fail = 0, 0
+    await update.message.reply_text("📢 Broadcasting...")
     for u in users:
         try:
-            await target.copy(chat_id=u["_id"])
+            await msg.copy(chat_id=u["_id"])
             total += 1
-            await asyncio.sleep(0.5)
         except:
-            failed += 1
+            fail += 1
+        await asyncio.sleep(0.5)
+    await update.message.reply_text(f"✅ Sent: {total} | ❌ Failed: {fail}")
 
-    await update.message.reply_text(f"📤 Sent: {total} | ❌ Failed: {failed}")
-
-# 🛠 Get ID from username or raw ID
+# ➕ /addsudo
 async def get_user_id_from_input(input_text, context):
     if input_text.isdigit():
         return int(input_text)
@@ -215,44 +229,40 @@ async def get_user_id_from_input(input_text, context):
             return user.id
     except BadRequest:
         return None
-    return None
 
-# ➕ /addsudo
 async def add_sudo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
-        return await update.message.reply_text("❌ You’re not authorized.")
+        return await update.message.reply_text("❌ Not authorized.")
     if not context.args:
-        return await update.message.reply_text("⚠️ Usage: /addsudo <username or user_id>")
-    
+        return await update.message.reply_text("Usage: /addsudo <username or user_id>")
     user_id = await get_user_id_from_input(context.args[0], context)
     if not user_id:
         return await update.message.reply_text("❌ Invalid user.")
-    
     auth_col.update_one({"_id": user_id}, {"$set": {}}, upsert=True)
-    await update.message.reply_text(f"✅ Sudo added for user ID `{user_id}`", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Sudo added for `{user_id}`", parse_mode="Markdown")
+
 # ➖ /rmsudo
 async def rm_sudo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
-        return await update.message.reply_text("❌ You’re not authorized.")
+        return await update.message.reply_text("❌ Not authorized.")
     if not context.args:
-        return await update.message.reply_text("⚠️ Usage: /rmsudo <username or user_id>")
-    
+        return await update.message.reply_text("Usage: /rmsudo <username or user_id>")
     user_id = await get_user_id_from_input(context.args[0], context)
     if not user_id:
         return await update.message.reply_text("❌ Invalid user.")
-    
     auth_col.delete_one({"_id": user_id})
-    await update.message.reply_text(f"✅ Sudo removed for user ID `{user_id}`", parse_mode="Markdown")
-# ▶️ Run bot
+    await update.message.reply_text(f"✅ Sudo removed for `{user_id}`", parse_mode="Markdown")
+
+# ▶️ Run
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_button))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_doc))
     app.add_handler(CommandHandler("chapass", change_pass))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("addsudo", add_sudo))
     app.add_handler(CommandHandler("rmsudo", rm_sudo))
-    print("✅ Bot running...")
+    app.add_handler(CallbackQueryHandler(handle_button))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_doc))
+    print("✅ Bot is running...")
     app.run_polling()
