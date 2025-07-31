@@ -1,33 +1,51 @@
-import logging
 import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import logging
+import asyncio
+from telegram import (
+    Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+)
 from telegram.ext import (
-    ApplicationBuilder, ContextTypes,
-    CommandHandler, CallbackQueryHandler,
-    MessageHandler, filters
+    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
+    MessageHandler, filters, ContextTypes
 )
+from pymongo import MongoClient
 
+# 🌐 Env Vars
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-PASSWORD = "BINORI903"
-OWNER_ID = 5826711802
+OWNER_ID = int(os.getenv("OWNER_ID"))
+MONGO_URL = os.getenv("MONGO_URL")
 
-user_auth = {}
-user_files = {}
-user_steps = {}
-user_seen_start = {}
+# 📦 MongoDB Setup
+mongo = MongoClient(MONGO_URL)
+db = mongo["vcfbot"]
+auth_col = db["auth_users"]
+pass_col = db["password"]
+user_col = db["broadcast_users"]
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# 📋 Logging
+logging.basicConfig(level=logging.INFO)
 
+# 🔐 Clean + Format number
 def clean_number(number: str) -> str:
     number = number.strip()
     if not number.startswith("+"):
         number = "+" + number
     return number
 
-async def send_welcome(user_id, context):
+# 🔰 Ensure DB default password
+def get_password():
+    data = pass_col.find_one({"_id": "password"})
+    return data["value"] if data else "BINORI903"
+
+# 🔄 Update password in DB
+def set_password(new_pass):
+    pass_col.update_one({"_id": "password"}, {"$set": {"value": new_pass}}, upsert=True)
+
+# 🏁 /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_col.update_one({"_id": user_id}, {"$set": {}}, upsert=True)
+
     await context.bot.send_photo(
         chat_id=user_id,
         photo="https://files.catbox.moe/xv5h9a.jpg",
@@ -45,108 +63,68 @@ async def send_welcome(user_id, context):
         ])
     )
 
-# 🚀 /start command
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    try:
-        member = await context.bot.get_chat_member("@WSBINORI", user_id)
-        if member.status in ["left", "kicked"]:
-            raise Exception("Not joined")
-    except:
-        await update.message.reply_text(
-            "🚫 Access Denied!\n\n👋 Please join our official channel to use this bot.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📢 Join Channel", url="https://t.me/WSBINORI")],
-                [InlineKeyboardButton("✅ I’ve Joined", url="https://t.me/atokick_ws_bot?start=_")]
-            ])
-        )
-        return
-    user_seen_start[user_id] = True
-    await send_welcome(user_id, context)
-
-# 🔘 Callback Button Handler (for "Text to VCF Converter")
+# 🎛 Button Access
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
 
-    try:
-        member = await context.bot.get_chat_member("@WSBINORI", user_id)
-        if member.status in ["left", "kicked"]:
-            raise Exception("Not joined")
-    except:
-        await query.message.reply_text(
-            "🚫 Still not joined.\n\nPlease join the channel to continue.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📢 Join Channel", url="https://t.me/WSBINORI")],
-                [InlineKeyboardButton("✅ I’ve Joined", url="https://t.me/atokick_ws_bot?start=_")]
-            ])
-        )
+    is_owner_or_sudo = user_id == OWNER_ID or auth_col.find_one({"_id": user_id})
+    if not is_owner_or_sudo:
+        await query.message.reply_text("🔑 Enter password to unlock VCF Converter:")
+        context.user_data["awaiting_pass"] = True
         return
 
-    if not user_seen_start.get(user_id):
-        await send_welcome(user_id, context)
-        user_seen_start[user_id] = True
-        return
+    context.user_data["auth"] = True
+    await query.message.reply_text("✅ You are verified! Now send .txt file or paste numbers.")
 
-    if user_id == OWNER_ID:
-        user_auth[user_id] = True
-        await context.bot.send_message(user_id, "✅ Verified as owner! Send .txt file or paste numbers manually.")
-    else:
-        if not user_auth.get(user_id):
-            user_auth[user_id] = False
-        await context.bot.send_message(user_id, "🔑 Enter password to unlock VCF Converter:")
-
-# 📝 Handle user text input
+# 📩 Handle password / manual input / filename
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
+    user_id = update.effective_user.id
     text = update.message.text.strip()
 
-    if user_id not in user_auth:
-        return
-
-    if user_auth[user_id] is False:
-        if text == PASSWORD:
-            user_auth[user_id] = True
-            await update.message.reply_text("✅ Access granted! Now send .txt file or paste numbers manually.")
+    if context.user_data.get("awaiting_pass"):
+        if text == get_password():
+            context.user_data["auth"] = True
+            auth_col.insert_one({"_id": user_id})
+            await update.message.reply_text("✅ Access granted! Now send .txt file or paste numbers.")
         else:
             await update.message.reply_text("❌ Wrong password. Try again:")
+        context.user_data["awaiting_pass"] = False
         return
 
-    if user_id not in user_files and user_id not in user_steps:
+    if not context.user_data.get("auth") and user_id != OWNER_ID:
+        return
+
+    if "numbers" not in context.user_data:
         lines = text.split("\n")
         numbers = [clean_number(line) for line in lines if line.strip().replace("+", "").isdigit()]
         if numbers:
-            user_files[user_id] = numbers
-            await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\n\n📤 How many .vcf files do you want? (e.g., 3, 5, 10):")
-            return
-
-    if user_id in user_files and user_id not in user_steps:
+            context.user_data["numbers"] = numbers
+            await update.message.reply_text(f"📞 Found {len(numbers)} numbers.\nHow many VCF files? (e.g., 3, 5):")
+        return
+    elif "count" not in context.user_data:
         try:
             count = int(text)
-            if count <= 0:
-                raise ValueError
-            user_steps[user_id] = {"count": count}
-            await update.message.reply_text("📝 Great! Now send the file name (e.g. QueenList):")
-        except ValueError:
-            await update.message.reply_text("❌ Please enter a valid number (like 3, 5, 10).")
+            context.user_data["count"] = count
+            await update.message.reply_text("📝 Send base filename (e.g. QueenList):")
+        except:
+            await update.message.reply_text("❌ Enter valid number.")
         return
-
-    if user_id in user_steps:
-        info = user_steps.pop(user_id)
-        count = info["count"]
-        all_numbers = user_files.pop(user_id)
+    else:
+        count = context.user_data["count"]
+        numbers = context.user_data["numbers"]
+        filename = text.strip().replace(" ", "_")
         chunks = [[] for _ in range(count)]
 
-        for idx, number in enumerate(all_numbers):
-            chunks[idx % count].append(number)
+        for i, num in enumerate(numbers):
+            chunks[i % count].append(num)
 
-        contact_index = 1
-        base_name = text.replace(" ", "_")
+        index = 1
         for i, chunk in enumerate(chunks, 1):
             vcf = ""
             for phone in chunk:
-                name = f"{base_name} {contact_index}"
+                name = f"{filename} {index}"
                 vcf += f"""BEGIN:VCARD
 VERSION:3.0
 N:{name};;;;
@@ -154,18 +132,19 @@ FN:{name}
 TEL;TYPE=CELL:{phone}
 END:VCARD
 """
-                contact_index += 1
-
-            filename = f"{base_name}_{i}.vcf"
-            with open(filename, "w") as f:
+                index += 1
+            file_name = f"{filename}_{i}.vcf"
+            with open(file_name, "w") as f:
                 f.write(vcf)
-            await update.message.reply_document(open(filename, "rb"), caption=f"📁 {filename} | {len(chunk)} contacts")
-            os.remove(filename)
+            await update.message.reply_document(open(file_name, "rb"), caption=f"📁 {file_name}")
+            os.remove(file_name)
 
-# 📂 Handle .txt file uploads
+        context.user_data.clear()
+
+# 📄 .txt Uploads
 async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if not user_auth.get(user_id):
+    user_id = update.effective_user.id
+    if not context.user_data.get("auth") and user_id != OWNER_ID:
         return
 
     doc = update.message.document
@@ -183,36 +162,54 @@ async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     numbers = [clean_number(line) for line in lines if line.strip().replace("+", "").isdigit()]
     if not numbers:
-        await update.message.reply_text("❌ No valid numbers found in file.")
+        await update.message.reply_text("❌ No valid numbers found.")
         return
 
-    user_files[user_id] = numbers
-    await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\n\n📤 How many .vcf files do you want? (e.g., 3, 5, 10):")
+    context.user_data["numbers"] = numbers
+    await update.message.reply_text(f"✅ Found {len(numbers)} numbers.\nHow many VCF files?")
 
-# 🔁 Change password command
-async def change_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id != OWNER_ID:
-        await update.message.reply_text("❌ You're not allowed to use this command.")
-        return
-
+# 🔑 /chapass
+async def change_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return await update.message.reply_text("❌ You're not authorized.")
     if not context.args:
-        await update.message.reply_text("⚠️ Usage: /chapass NEWPASSWORD")
-        return
+        return await update.message.reply_text("⚠️ Usage: /chapass NEWPASS")
+    set_password(context.args[0])
+    await update.message.reply_text(f"✅ Password changed to: `{context.args[0]}`", parse_mode="Markdown")
 
-    global PASSWORD
-    PASSWORD = context.args[0]
-    await update.message.reply_text(f"✅ Password changed to: `{PASSWORD}`", parse_mode="Markdown")
+# 📢 /broadcast (text or reply with media)
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return await update.message.reply_text("❌ Unauthorized.")
+    if update.message.reply_to_message:
+        target = update.message.reply_to_message
+    else:
+        if not context.args:
+            return await update.message.reply_text("⚠️ Reply to a message or use: /broadcast Hello users!")
+        text = " ".join(context.args)
+        target = await update.message.reply_text("✅ Broadcasting...")
 
-# ▶️ Main runner
+    total = 0
+    failed = 0
+    users = user_col.find()
+    for u in users:
+        try:
+            await target.copy(chat_id=u["_id"])
+            total += 1
+            await asyncio.sleep(0.5)
+        except:
+            failed += 1
+
+    await update.message.reply_text(f"📤 Sent to: {total} users\n❌ Failed: {failed}")
+
+# ▶️ Runner
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("chapass", change_password))
-    app.add_handler(CallbackQueryHandler(handle_button, pattern="access_vcf"))
+    app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_doc))
-
-    print("✅ Bot is running...")
+    app.add_handler(CommandHandler("chapass", change_pass))
+    app.add_handler(CommandHandler("broadcast", broadcast))
+    print("✅ Bot running...")
     app.run_polling()
