@@ -183,27 +183,40 @@ async def change_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return await update.message.reply_text("❌ Unauthorized.")
+
     if update.message.reply_to_message:
-        target = update.message.reply_to_message
+        # If it's a replied message, use its content
+        message = update.message.reply_to_message
+        text = message.text or message.caption
+        media = message.photo or message.video or message.document
     else:
         if not context.args:
             return await update.message.reply_text("⚠️ Reply to a message or use: /broadcast Hello users!")
         text = " ".join(context.args)
-        target = await update.message.reply_text("✅ Broadcasting...")
+        media = None
+
+    await update.message.reply_text("📡 Broadcasting started...")
 
     total = 0
     failed = 0
     users = user_col.find()
     for u in users:
         try:
-            await target.copy(chat_id=u["_id"])
+            if media:
+                if message.photo:
+                    await context.bot.send_photo(chat_id=u["_id"], photo=media[-1].file_id, caption=text or "")
+                elif message.video:
+                    await context.bot.send_video(chat_id=u["_id"], video=media.file_id, caption=text or "")
+                elif message.document:
+                    await context.bot.send_document(chat_id=u["_id"], document=media.file_id, caption=text or "")
+            else:
+                await context.bot.send_message(chat_id=u["_id"], text=text)
             total += 1
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
         except:
             failed += 1
 
     await update.message.reply_text(f"📤 Sent: {total} | ❌ Failed: {failed}")
-
 async def get_user_id_from_input(input_text, context):
     if input_text.isdigit():
         return int(input_text)
